@@ -1,0 +1,81 @@
+services:
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      interval:     5s
+      timeout:      5s
+      retries:      5
+      start_period: 10s
+    networks:
+      - derms_network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    environment:
+      CLUSTER_ID:                                     ${CLUSTER_ID}
+      KAFKA_NODE_ID:                                  1
+      KAFKA_PROCESS_ROLES:                            broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS:                 1@kafka:9094
+      KAFKA_LISTENERS:                                PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS:                     PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:           PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES:                CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME:               PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR:         1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR:            1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE:                "true"
+      KAFKA_LOG_RETENTION_HOURS:                      2
+    ports:
+      - "9093:9093"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval:     10s
+      timeout:      10s
+      retries:      5
+      start_period: 30s
+    networks:
+      - derms_network
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_TYPE:              ${DB_TYPE}
+      DB_USERNAME:          ${DB_USERNAME}
+      DB_PASSWORD:          ${DB_PASSWORD}
+      DB_SERVER_URL:        postgres
+      DB_SERVER_PORT:       ${DB_SERVER_PORT}
+      DB_NAME:              ${DB_NAME}
+      ENGINE_ECHO:          ${ENGINE_ECHO}
+      JWT_SECRET_KEY:       ${JWT_SECRET_KEY}
+      KAFKA_BOOTSTRAP_URL:  kafka
+      KAFKA_BOOTSTRAP_PORT: ${KAFKA_BOOTSTRAP_PORT}
+      SIMULATE_ERROR_RATE:       ${SIMULATE_ERROR_RATE:-0}
+      SIMULATE_SLOW_ENDPOINT_MS: ${SIMULATE_SLOW_ENDPOINT_MS:-0}
+    ports:
+      - "8000:8000"
+      
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - derms_network
+
+networks:
+  derms_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
